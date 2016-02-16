@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Xml;
 using System.Xml.Linq;
@@ -49,8 +50,9 @@ namespace LoadNodes
             _client.Connect();
             //LoadTags();
             //LoadUsers();
-            LoadBadgeClass();
-            LoadBadges();
+            //LoadBadgeClass();
+            //LoadBadges();
+            CreateBadgesCsvFile();
             Console.WriteLine("Done!");
             Console.ReadLine();
         }
@@ -106,9 +108,10 @@ namespace LoadNodes
 
         static void LoadBadges()
         {
-            foreach (var row in GetRows("badges.xml"))
+            foreach (var row in GetRows("badges.xml").Where(r=>r.Attribute("UserId").Value == "8152"))//.Skip(10).Take(10))
             {
                 var name = row.Attribute("Name").Value;
+                var userId = Convert.ToInt32(row.Attribute("UserId").Value);
                 var isTagBased = Convert.ToBoolean(row.Attribute("TagBased").Value);
                 var badgeClassId = Convert.ToInt32(row.Attribute("Class").Value);
                 if (isTagBased)
@@ -117,21 +120,75 @@ namespace LoadNodes
                 }
                 Console.WriteLine("Badge : {0}", name);
 
-                var badge = new Badge
+                var newBadge = new Badge
                 {
                     Name = name,
                 };
 
-                _client.Cypher
+                var q =_client.Cypher
                     .Merge("(badge:Badge { Name: {name} })")
                     .OnCreate()
                     .Set("badge = {newBadge}")
                     .WithParams(new
                     {
-                        name = badge.Name,
-                        badge
-                    })
-                    .ExecuteWithoutResults(); 
+                        name = newBadge.Name,
+                        newBadge = newBadge
+                    });
+                Console.WriteLine("{0}", q.Query.QueryText);
+                Console.WriteLine("{0}", q.Query.QueryParameters);
+                q.ExecuteWithoutResults();
+
+                q = _client.Cypher
+                    .Match("(badge:Badge)", "(class:Class)")
+                    .Where((Badge badge) => badge.Name == name)
+                    .AndWhere((BadgeClass @class) => @class.Id == badgeClassId)
+                    .CreateUnique("badge-[:IS_IN_CLASS]->class");
+                Console.WriteLine("{0}", q.Query.QueryText);
+                Console.WriteLine("{0}", q.Query.QueryParameters);
+                q.ExecuteWithoutResults();
+
+                q = _client.Cypher
+                    .Match("(badge:Badge)", "(user:User)")
+                    .Where((Badge badge) => badge.Name == name)
+                    .AndWhere((User user) => user.Id == userId)
+                    .Create("user-[:EARNED]->badge");
+                Console.WriteLine("{0}", q.Query.QueryText);
+                Console.WriteLine("{0}", q.Query.QueryParameters);
+                q.ExecuteWithoutResults();
+
+                Console.WriteLine(new String('-',72));
+            }
+        }
+
+        static void CreateBadgesCsvFile()
+        {
+            using (FileStream fs = new FileStream("badges-batch4.csv", FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                using (StreamWriter writer = new StreamWriter(fs))
+                {
+                    int count = 0;
+                    writer.WriteLine("UserId,Name,ClassId,TagBased,TagName");
+                    foreach (var row in GetRows("badges.xml")
+                        .Skip(20).Where(r => r.Attribute("UserId").Value == "8152"))
+//                        .Where(r => Convert.ToInt32(r.Attribute("UserId").Value) >= 10000)
+//                        .Where(r => Convert.ToInt32(r.Attribute("UserId").Value) < 1000000))
+                    {
+                        var name = row.Attribute("Name").Value;
+                        var userId = Convert.ToInt32(row.Attribute("UserId").Value);
+                        var isTagBased = Convert.ToBoolean(row.Attribute("TagBased").Value);
+                        var badgeClassId = Convert.ToInt32(row.Attribute("Class").Value);
+                        var tagName = "";
+                        if (isTagBased)
+                        {
+                            tagName = name;
+                            name += " : " + classes.First(c => c.Id == badgeClassId).Name;
+                        }
+                        writer.WriteLine("{0},\"{1}\",{2},{3},\"{4}\"",userId,name,badgeClassId,isTagBased?1:0,tagName);
+                        count++;
+                        if (count%10000 == 0)
+                            Console.WriteLine("Processed {0} rows", count);
+                    }
+                }
             }
         }
 

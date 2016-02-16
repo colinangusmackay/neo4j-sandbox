@@ -1,0 +1,25 @@
+USING PERIODIC COMMIT 500
+LOAD CSV WITH HEADERS FROM "file:///c:/dev/exempt/neo4j-sandbox/src/data/badges-batch4.csv"
+AS csvLine
+MERGE ( b:Badge{Name:csvLine.Name} )
+ON CREATE SET b.Name = csvLine.Name
+
+//USING PERIODIC COMMIT 50
+LOAD CSV WITH HEADERS FROM "file:///c:/dev/exempt/neo4j-sandbox/src/data/badges-batch4.csv"
+AS csvLine
+MATCH( c:Class{id:toInt(csvLine.ClassId)} ), ( b:Badge{Name:csvLine.Name} )
+CREATE UNIQUE (b)-[:IS_IN_CLASS]->(c)
+
+//USING PERIODIC COMMIT 50
+LOAD CSV WITH HEADERS FROM "file:///c:/dev/exempt/neo4j-sandbox/src/data/badges-batch4.csv"
+AS csvLine
+MATCH(u:User{Id:toInt(csvLine.UserId)}), ( b:Badge{Name:csvLine.Name} )
+CREATE (u)-[:EARNED]->(b)
+
+//USING PERIODIC COMMIT 50
+LOAD CSV WITH HEADERS FROM "file:///c:/dev/exempt/neo4j-sandbox/src/data/badges-batch4.csv"
+AS csvLine
+WITH csvLine
+WHERE csvLine.TagName <> ""
+MATCH( b:Badge{Name:csvLine.Name} ), (t:Tag{name:csvLine.TagName})
+CREATE UNIQUE (b)-[:AWARDED_FOR]->(t)
